@@ -1,0 +1,61 @@
+# Docinator MongoDB - production-ready single node for dev/test
+# Usage:
+#   1) Create a .env file (not committed) with secure values, e.g.:
+#        MONGO_INITDB_ROOT_USERNAME=docinator
+#        MONGO_INITDB_ROOT_PASSWORD=super-secure-password
+#        MONGO_INITDB_DATABASE=docinator
+#   2) Start MongoDB:
+#        docker compose up -d
+#   3) Export app connection string for Docinator:
+#        export MONGODB_URI="mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@localhost:27017/${MONGO_INITDB_DATABASE}?authSource=admin"
+#   4) Stop:
+#        docker compose down
+#
+# Notes:
+# - Data persists across restarts via a named volume (mongo_data)
+# - MongoDB is exposed on localhost:27017
+# - Healthcheck pings the server (requires auth)
+# - No replica set or custom config files (explicitly out of scope)
+
+name: docinator
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: docinator-mongo
+    restart: unless-stopped
+
+    # Authentication: root user created on first startup
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-docinator}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-docinator_password}
+      # Creates an initial database for convenience; auth DB remains 'admin'
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:-docinator}
+
+    # Expose default MongoDB port
+    ports:
+      - "27017:27017"
+
+    # Persistent storage for MongoDB data files
+    volumes:
+      - mongo_data:/data/db
+
+    # Dedicated network to allow future app services to connect by name
+    networks:
+      - docinator-net
+
+    # Healthcheck: requires the root credentials; uses mongosh to ping admin DB
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --username $$MONGO_INITDB_ROOT_USERNAME --password $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --quiet --eval \"db.adminCommand({ ping: 1 })\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  docinator-net:
+    driver: bridge
